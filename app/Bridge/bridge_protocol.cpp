@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cctype>
 #include <cstdarg>
+#include <cstdint>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -80,15 +81,57 @@ bool parse_i32(const char *&p, int32_t *out)
   return true;
 }
 
-const char *hal_err(HAL_StatusTypeDef st)
+const char *io_tag(HAL_StatusTypeDef st)
 {
   switch (st)
   {
     case HAL_OK:      return "OK";
-    case HAL_BUSY:    return "ERR busy";
-    case HAL_TIMEOUT: return "ERR timeout";
-    default:          return "ERR hal";
+    case HAL_BUSY:    return "BUSY";
+    case HAL_TIMEOUT: return "TIMEOUT";
+    default:          return "FAIL";
   }
+}
+
+/* test1m geometry — integer math, pi ≈ 3142/1000 */
+void test1m_plan(uint32_t *deg_out, uint32_t *travel_ms_out)
+{
+  const uint32_t diam = BRIDGE_WHEEL_DIAMETER_MM;
+  const uint32_t gear_x100 = BRIDGE_WHEEL_GEAR_X100;
+  const uint32_t dist = BRIDGE_TEST1M_DIST_MM;
+  uint32_t deg = 1U;
+  uint32_t travel_ms = 3000U;
+
+  if (diam > 0U)
+  {
+    /* circ_mm_x10 ≈ diam * pi * 10 */
+    const uint32_t circ_x10 = (diam * 3142U + 50U) / 100U;
+    if (circ_x10 > 0U)
+    {
+      const uint64_t num = 360ULL * static_cast<uint64_t>(dist) *
+                           static_cast<uint64_t>(gear_x100);
+      const uint64_t den = static_cast<uint64_t>(circ_x10) * 10ULL;
+      deg = static_cast<uint32_t>((num + den / 2ULL) / den);
+      if (deg < 1U) deg = 1U;
+    }
+  }
+
+  {
+    const uint32_t rpm = static_cast<uint32_t>(ZDT_DEFAULT_VEL_RPM);
+    if (rpm > 1U)
+    {
+      /* wait ≈ (deg/360)*(60/rpm)*2.5 + 1 s, in ms (integer) */
+      const uint64_t move_ms =
+          (static_cast<uint64_t>(deg) * 60ULL * 2500ULL) /
+              (360ULL * static_cast<uint64_t>(rpm)) +
+          1000ULL;
+      travel_ms = static_cast<uint32_t>(move_ms);
+    }
+    if (travel_ms < 2000U) travel_ms = 2000U;
+    if (travel_ms > 30000U) travel_ms = 30000U;
+  }
+
+  *deg_out = deg;
+  *travel_ms_out = travel_ms;
 }
 
 class BridgeProtocol final : public LinkProtocol
@@ -283,39 +326,24 @@ private:
     };
     const uint32_t tmo = ZDT_ACK_TIMEOUT_MS;
     const TickType_t gap = pdMS_TO_TICKS(BRIDGE_TEST_GAP_MS);
-    const float diam = BRIDGE_WHEEL_DIAMETER_MM;
-    const float gear = BRIDGE_WHEEL_GEAR_RATIO;
-    const float dist = BRIDGE_TEST1M_DIST_MM;
-    const float circ = 3.14159265f * diam;
-    int32_t deg = 0;
-    uint32_t travel_ms = 3000U;
+    uint32_t deg_u = 0U;
+    uint32_t travel_ms = 0U;
     char rxhex[48];
     uint8_t fail_en = 0U;
     uint8_t fail_go = 0U;
     uint8_t fail_stop = 0U;
     uint8_t fail_dis = 0U;
 
-    if (circ > 1.0f)
-    {
-      deg = static_cast<int32_t>((360.0f * dist * gear) / circ + 0.5f);
-    }
-    if (deg < 1) deg = 1;
+    test1m_plan(&deg_u, &travel_ms);
+    const int32_t deg_signed = static_cast<int32_t>(deg_u);
 
-    {
-      const float rpm = static_cast<float>(ZDT_DEFAULT_VEL_RPM);
-      const float revs = static_cast<float>(deg) / 360.0f;
-      float sec = (rpm > 1.0f) ? (revs * 60.0f / rpm) : 3.0f;
-      sec = sec * 2.5f + 1.0f;
-      if (sec < 2.0f) sec = 2.0f;
-      if (sec > 30.0f) sec = 30.0f;
-      travel_ms = static_cast<uint32_t>(sec * 1000.0f + 0.5f);
-    }
-
-    /* nano.specs: no float printf — print assumed geometry as integers */
-    reply_fmt("TEST1M dist=%ldmm diam=%ldmm gear=%ld/100 deg=%ld wait=%lums (ASSUME; edit bridge_config)",
-              static_cast<long>(dist + 0.5f), static_cast<long>(diam + 0.5f),
-              static_cast<long>(gear * 100.0f + 0.5f), static_cast<long>(deg),
-              static_cast<unsigned long>(travel_ms));
+    reply_fmt("TEST1M dist=%umm diam=%umm gear=%u/100 deg=%ld wait=%lums tmo=%lums",
+              static_cast<unsigned>(BRIDGE_TEST1M_DIST_MM),
+              static_cast<unsigned>(BRIDGE_WHEEL_DIAMETER_MM),
+              static_cast<unsigned>(BRIDGE_WHEEL_GEAR_X100),
+              static_cast<long>(deg_signed),
+              static_cast<unsigned long>(travel_ms),
+              static_cast<unsigned long>(tmo));
     flush_reply();
 
     for (uint8_t i = 0U; i < 4U; ++i)
@@ -332,10 +360,10 @@ private:
     for (uint8_t i = 0U; i < 4U; ++i)
     {
       const uint8_t addr = kWheels[i];
-      const HAL_StatusTypeDef st = Zdt_GoDegAndWait(addr, deg, tmo);
+      const HAL_StatusTypeDef st = Zdt_GoDegAndWait(addr, deg_signed, tmo);
       (void)Zdt_FormatLastRx(rxhex, sizeof(rxhex));
       reply_fmt("G a=%u deg=%ld %s rx=%s", static_cast<unsigned>(addr),
-                static_cast<long>(deg), ack_tag(st), rxhex);
+                static_cast<long>(deg_signed), ack_tag(st), rxhex);
       flush_reply();
       if (st != HAL_OK) fail_go = static_cast<uint8_t>(fail_go | (1U << i));
       vTaskDelay(gap);
@@ -441,7 +469,7 @@ private:
         (void)Zdt_Stop(kWheels[i]);
         vTaskDelay(gap);
       }
-      reply_fmt("ERR TEST en=0x%02X vel=0x%02X (bit0=FL..bit3=RR; TIMEOUT=鏃燯SART1 ACK)",
+      reply_fmt("ERR TEST en=0x%02X vel=0x%02X (bit0=FL..bit3=RR; TIMEOUT=no USART1 ACK)",
                 static_cast<unsigned>(fail_en), static_cast<unsigned>(fail_vel));
       return;
     }
@@ -493,6 +521,10 @@ private:
     {
       append_line("OK A-tier: M? ME0/1 MG[+|-]deg MX MS[n] ML MJ S? ... test test1m ver");
       append_line("addr 1=lift 2=turn 3-6=wheels *=bcast default=2");
+      reply_fmt("test1m: diam=%umm gear=%u/100 dist=%umm (CMake or bridge_config.h)",
+                static_cast<unsigned>(BRIDGE_WHEEL_DIAMETER_MM),
+                static_cast<unsigned>(BRIDGE_WHEEL_GEAR_X100),
+                static_cast<unsigned>(BRIDGE_TEST1M_DIST_MM));
       return;
     }
 
@@ -548,7 +580,7 @@ private:
           return;
         }
         const HAL_StatusTypeDef st = Zdt_Enable(addr, static_cast<uint8_t>(on));
-        reply_fmt("%s ME addr=%u on=%u", hal_err(st), static_cast<unsigned>(addr),
+        reply_fmt("%s ME addr=%u on=%u", io_tag(st), static_cast<unsigned>(addr),
                   static_cast<unsigned>(on));
         break;
       }
@@ -560,6 +592,15 @@ private:
           append_line("ERR MG needs deg");
           return;
         }
+        if (addr != ZDT_ADDR_BROADCAST)
+        {
+          const int32_t cap = static_cast<int32_t>(BRIDGE_MG_MAX_DEG);
+          if (deg > cap || deg < -cap)
+          {
+            reply_fmt("ERR MG limit +/-%ld", static_cast<long>(cap));
+            return;
+          }
+        }
         const HAL_StatusTypeDef st = Zdt_GoDeg(addr, deg);
         BridgeSlot *s = slot_find(addr);
         if (s != nullptr)
@@ -568,14 +609,14 @@ private:
           if (deg > 0) s->dir = 1U;
           else if (deg < 0) s->dir = 0U;
         }
-        reply_fmt("%s MG addr=%u deg=%ld", hal_err(st), static_cast<unsigned>(addr),
+        reply_fmt("%s MG addr=%u deg=%ld", io_tag(st), static_cast<unsigned>(addr),
                   static_cast<long>(deg));
         break;
       }
       case 'X':
       {
         const HAL_StatusTypeDef st = Zdt_Stop(addr);
-        reply_fmt("%s MX addr=%u", hal_err(st), static_cast<unsigned>(addr));
+        reply_fmt("%s MX addr=%u", io_tag(st), static_cast<unsigned>(addr));
         break;
       }
       case 'S':
@@ -717,7 +758,7 @@ private:
         {
           st = Servo_SetPulseUs(ch, static_cast<uint16_t>(us));
         }
-        reply_fmt("%s S%uU%u", hal_err(st), static_cast<unsigned>(ch),
+        reply_fmt("%s S%uU%u", io_tag(st), static_cast<unsigned>(ch),
                   static_cast<unsigned>(us));
         break;
       }
@@ -730,7 +771,7 @@ private:
         }
         if (!Servo_IsReady()) { append_line("ERR servo not ready"); return; }
         const HAL_StatusTypeDef st = Servo_ClampClose();
-        reply_fmt("%s S0C", hal_err(st));
+        reply_fmt("%s S0C", io_tag(st));
         break;
       }
       case 'O':
@@ -742,7 +783,7 @@ private:
         }
         if (!Servo_IsReady()) { append_line("ERR servo not ready"); return; }
         const HAL_StatusTypeDef st = Servo_ClampOpen();
-        reply_fmt("%s S0O", hal_err(st));
+        reply_fmt("%s S0O", io_tag(st));
         break;
       }
       case 'M':
@@ -754,7 +795,7 @@ private:
         }
         if (!Servo_IsReady()) { append_line("ERR servo not ready"); return; }
         const HAL_StatusTypeDef st = Servo_TurntableMid();
-        reply_fmt("%s S1M", hal_err(st));
+        reply_fmt("%s S1M", io_tag(st));
         break;
       }
       default:

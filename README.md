@@ -14,7 +14,7 @@ STM32F407 控制固件工程。STM32CubeMX 生成外设配置，CMake/Ninja 构�
 | RTOS | FreeRTOS（heap_4，CMSIS-RTOS V2），`configTOTAL_HEAP_SIZE = 15360` |
 | 编译 | arm-none-eabi-gcc 14.3.1 + CMake 4.3.1 + Ninja |
 | 构建目录 | `build/Debug`（`build/` 已被 `.gitignore` 忽略） |
-| 串口 | USART6：PG14/TX、PG9/RX，9600；USART1：PB6/PB7，115200 |
+| 串口 | USART6：PG14/TX、PG9/RX，9600（BT/命令）；USART1：PA9/PB7，115200（Emm V5 电机总线） |
 | DMA | USART6 RX/TX = DMA2_Stream1 / DMA2_Stream6，Channel 5，Normal 模式 |
 | 时钟基准 | TIM7 提供 HAL timebase，SysTick 交 RTOS |
 

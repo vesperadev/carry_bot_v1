@@ -113,22 +113,55 @@ K230 VisionModule ──(另开 UART，勿占 USART1/6)──> 主控（待定�
 | `S0U1000` / `S0U1500` | 夹爪关闭/打开（软件钳 1000–1500） |
 | `S1U<us>` | 转盘绝对脉宽（硬件钳 200–2800） |
 | `S0C` / `S0O` / `S1M` | 夹住 / 打开 / 转盘中位 |
-| `test` / `TEST` | 轮 3–6 使能 + 同向速度跑约 2s 后停止/失能（无 kinematics 假设） |
+| `test` / `TEST` | 轮 3–6 使能 + 同向速度跑约 2s 后停止/失能；流式 `ACK`/`TIMEOUT`/`rx=` |
+| `test1m` | 轮 3–6 位置模式前进约 1 m（`zdt_dir_map` 极性 + `bridge_config` 轮径/减速比） |
+| `ver` / `version` | 固件分支、短 hash、最近提交说明 |
 
 B/C 档（`MV`/`MQ`/麦轮 `MFW`/`X:Y:`/摆动等）回 `ERR not implemented`。
 
-冒烟（SerialTest / 蓝牙 9600）：
+`MG` 单轴相对角单次上限 `BRIDGE_MG_MAX_DEG`（默认 3600°）；失败各步会 `MX` 停车。
+
+轮几何（`test1m`）可在 `app/Bridge/bridge_config.h` 或 CMake 配置：
 
 ```text
+-DBRIDGE_WHEEL_DIAMETER_MM=96
+-DBRIDGE_WHEEL_GEAR_X100=150
+-DBRIDGE_TEST1M_DIST_MM=1000
+```
+
+### USART 分工
+
+| 硬件 | 脚位 | 波特率 | 用途 |
+|------|------|--------|------|
+| USART6 | PG14/PG9 | 9600 | 蓝牙/上位机：ASCII 命令与应答（`test`/`M*`/`ver`） |
+| USART1 | **PA9** TX / PB7 RX | 115200 | Emm V5 二进制总线（仅帧，无 ASCII） |
+
+冒烟（蓝牙/USART6 @9600，行尾 `\r` 或 `\n`）：
+
+```text
+ver
 M?
-M1E1
-M1G+10
-M1X
+M3E1
+M3G+90
+M3X
+M3E0
+test
+test1m
 S0U1500
 S0U1000
 S1U1500
-test
 ```
+
+单轮方向校（USART6；观察车体是否向前）：
+
+```text
+M3E1
+M3G+360
+M3X
+M3E0
+```
+
+`zdt_dir_map.h`：FL(3)/RL(4) 已取反，使 `G+` / `test` / `test1m` 为车体前进。
 
 本分支已 merge `feature/zdt-motor-bus` + `feature/servo-pca9685` 以便链接；上板验证后再合 main。
 

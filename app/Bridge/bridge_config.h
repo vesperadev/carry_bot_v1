@@ -20,20 +20,22 @@
 /* test streams debug lines via Link_Send; final OK/ERR stays in reply buf */
 
 /* test1m: forward ~1 m via position mode (dir map applies in Zdt_GoDeg).
- * ASSUMPTIONS (edit after measuring the real wheel):
- *   - wheel diameter = BRIDGE_WHEEL_DIAMETER_MM (default 100 mm)
- *   - motor shaft rev : wheel rev = BRIDGE_WHEEL_GEAR_RATIO (default 1.0 direct)
- *   - deg = 360 * dist_mm * gear / (pi * diameter)
- *   - travel wait uses ZDT_DEFAULT_VEL_RPM with 2.5x margin + 1 s
+ * Integer geometry only (newlib nano: no float in vsnprintf).
+ * Override at build: -DBRIDGE_WHEEL_DIAMETER_MM=96U etc. or edit below.
  */
 #ifndef BRIDGE_WHEEL_DIAMETER_MM
-#define BRIDGE_WHEEL_DIAMETER_MM    100.0f
+#define BRIDGE_WHEEL_DIAMETER_MM    100U   /* mm */
 #endif
-#ifndef BRIDGE_WHEEL_GEAR_RATIO
-#define BRIDGE_WHEEL_GEAR_RATIO     1.0f
+#ifndef BRIDGE_WHEEL_GEAR_X100
+#define BRIDGE_WHEEL_GEAR_X100      100U   /* motor shaft revs : wheel rev = x/100 */
 #endif
 #ifndef BRIDGE_TEST1M_DIST_MM
-#define BRIDGE_TEST1M_DIST_MM       1000.0f
+#define BRIDGE_TEST1M_DIST_MM       1000U  /* mm */
+#endif
+
+/* Safer motion: reject oversized single MG (per addr, not broadcast). */
+#ifndef BRIDGE_MG_MAX_DEG
+#define BRIDGE_MG_MAX_DEG           3600L
 #endif
 
 

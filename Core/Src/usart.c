@@ -105,8 +105,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
         __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**USART1 GPIO Configuration
-    PA9     ------> USART1_TX  (shell ´®¿Ú2 TXD)
-    PB7     ------> USART1_RX  (shell ´®¿Ú2 RXD)
+    PA9     ------> USART1_TX  (shell UART2 / Emm V5 motor bus TXD)
+    PB7     ------> USART1_RX  (shell UART2 / Emm V5 motor bus RXD)
     */
     GPIO_InitStruct.Pin = GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;

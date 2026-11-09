@@ -85,9 +85,16 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
 )
 
+# Bridge test1m wheel geometry (optional overrides at configure time)
+set(BRIDGE_WHEEL_DIAMETER_MM "100" CACHE STRING "Wheel diameter in mm (test1m)")
+set(BRIDGE_WHEEL_GEAR_X100 "100" CACHE STRING "Motor:wheel ratio times 100 (100 = 1:1)")
+set(BRIDGE_TEST1M_DIST_MM "1000" CACHE STRING "test1m forward distance in mm")
+
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    BRIDGE_WHEEL_DIAMETER_MM=${BRIDGE_WHEEL_DIAMETER_MM}U
+    BRIDGE_WHEEL_GEAR_X100=${BRIDGE_WHEEL_GEAR_X100}U
+    BRIDGE_TEST1M_DIST_MM=${BRIDGE_TEST1M_DIST_MM}U
 )
 
 # Remove wrong libob.a library dependency when using cpp files
