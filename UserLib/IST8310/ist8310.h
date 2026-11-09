@@ -21,6 +21,8 @@ typedef enum {
 
 typedef struct {
   bool initialized;
+  /** True after N consecutive reads with sane field strength (see driver). */
+  bool mag_ready;
   int16_t raw_mx;
   int16_t raw_my;
   int16_t raw_mz;
@@ -31,6 +33,10 @@ void IST8310_StructInit(ist8310_t *dev);
 ist8310_err_t IST8310_Init(ist8310_t *dev);
 /** Read WHO_AM_I (expects 0x10). Returns register value, or 0xFF on I2C fail. */
 uint8_t IST8310_WhoAmI(void);
+/** PG3 DRDY line high (new sample). Poll-friendly. */
+bool IST8310_DataReadyPin(void);
+/** Block up to timeout_ms for DRDY; returns false if still not ready. */
+bool IST8310_WaitDataReady(uint32_t timeout_ms);
 /** Fill raw_mx/my/mz only (no scale). */
 ist8310_err_t IST8310_ReadRaw(ist8310_t *dev);
 /** Read raw XYZ into raw_m* and scaled mag_ut[]. */

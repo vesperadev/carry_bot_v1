@@ -7,6 +7,18 @@
 static mahony_ahrs_t s_mahony;
 static wheel_ahrs_state_t s_state;
 
+static bool mag_vector_ok(float mx, float my, float mz)
+{
+  const float b2 = mx * mx + my * my + mz * mz;
+  if (b2 <= 0.0f) {
+    return false;
+  }
+  if (b2 < (20.0f * 20.0f) || b2 > (120.0f * 120.0f)) {
+    return false;
+  }
+  return true;
+}
+
 void WheelAhrs_Init(float sample_hz)
 {
   Mahony_Init(&s_mahony, sample_hz);
@@ -28,11 +40,11 @@ void WheelAhrs_Update(const bmi088_t *imu, const ist8310_t *mag, bool use_mag)
     return;
   }
 
-  if (use_mag && mag != 0 && mag->initialized) {
+  if (use_mag && mag != 0 && mag->initialized && mag->mag_ready && imu->gyro_calibrated) {
     mx = mag->mag_ut[0];
     my = mag->mag_ut[1];
     mz = mag->mag_ut[2];
-    mag_ok = !((mx == 0.0f) && (my == 0.0f) && (mz == 0.0f));
+    mag_ok = mag_vector_ok(mx, my, mz);
   }
 
   if (mag_ok) {

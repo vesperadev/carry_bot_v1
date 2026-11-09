@@ -29,6 +29,12 @@
 #define IST8310_I2C_TIMEOUT_MS 50u
 #define IST8310_RST_LOW_MS 50u
 #define IST8310_RST_HIGH_MS 50u
+#define IST8310_DRDY_WAIT_MS 12u
+/** Consecutive sane field reads before mag_ready. */
+#define IST8310_MAG_READY_STREAK 5u
+/** Earth-field sanity (uT); reject obvious garbage before AHRS mag fuse. */
+#define IST8310_FIELD_MIN_UT 20.0f
+#define IST8310_FIELD_MAX_UT 120.0f
 
 static void delay_ms(uint32_t ms)
 {
@@ -77,12 +83,16 @@ static HAL_StatusTypeDef read_regs(uint8_t reg, uint8_t *buf, uint16_t len)
                           I2C_MEMADD_SIZE_8BIT, buf, len, IST8310_I2C_TIMEOUT_MS);
 }
 
+static uint8_t s_ready_streak;
+
 void IST8310_StructInit(ist8310_t *dev)
 {
   if (dev == NULL) {
     return;
   }
   dev->initialized = false;
+  dev->mag_ready = false;
+  s_ready_streak = 0u;
   dev->raw_mx = 0;
   dev->raw_my = 0;
   dev->raw_mz = 0;
@@ -132,7 +142,58 @@ ist8310_err_t IST8310_Init(ist8310_t *dev)
 
   delay_ms(10);
   dev->initialized = true;
+  dev->mag_ready = false;
+  s_ready_streak = 0u;
   return IST8310_OK;
+}
+
+bool IST8310_DataReadyPin(void)
+{
+  return (HAL_GPIO_ReadPin(DRDY_IST8310_GPIO_Port, DRDY_IST8310_Pin) == GPIO_PIN_SET);
+}
+
+bool IST8310_WaitDataReady(uint32_t timeout_ms)
+{
+  uint32_t start = osKernelGetTickCount();
+  while ((osKernelGetTickCount() - start) < timeout_ms) {
+    if (IST8310_DataReadyPin()) {
+      return true;
+    }
+    osDelay(1);
+  }
+  return IST8310_DataReadyPin();
+}
+
+static bool mag_field_sane_ut(const float mag_ut[3])
+{
+  const float b2 =
+      mag_ut[0] * mag_ut[0] + mag_ut[1] * mag_ut[1] + mag_ut[2] * mag_ut[2];
+
+  if (b2 <= 0.0f) {
+    return false;
+  }
+  if (b2 < (IST8310_FIELD_MIN_UT * IST8310_FIELD_MIN_UT)) {
+    return false;
+  }
+  if (b2 > (IST8310_FIELD_MAX_UT * IST8310_FIELD_MAX_UT)) {
+    return false;
+  }
+  return true;
+}
+
+static void mag_note_readiness(ist8310_t *dev)
+{
+  if (dev == NULL) {
+    return;
+  }
+  if (mag_field_sane_ut(dev->mag_ut)) {
+    if (s_ready_streak < 255u) {
+      s_ready_streak++;
+    }
+  } else {
+    s_ready_streak = 0u;
+  }
+  dev->mag_ready = (s_ready_streak >= IST8310_MAG_READY_STREAK);
 }
 
 ist8310_err_t IST8310_ReadRaw(ist8310_t *dev)
@@ -158,14 +219,23 @@ ist8310_err_t IST8310_Read(ist8310_t *dev)
 {
   ist8310_err_t err;
 
+  if (dev == NULL || !dev->initialized) {
+    return IST8310_ERR_NO_SENSOR;
+  }
+
+  (void)IST8310_WaitDataReady(IST8310_DRDY_WAIT_MS);
+
   err = IST8310_ReadRaw(dev);
   if (err != IST8310_OK) {
+    s_ready_streak = 0u;
+    dev->mag_ready = false;
     return err;
   }
 
   dev->mag_ut[0] = (float)dev->raw_mx * IST8310_MAG_SEN;
   dev->mag_ut[1] = (float)dev->raw_my * IST8310_MAG_SEN;
   dev->mag_ut[2] = (float)dev->raw_mz * IST8310_MAG_SEN;
+  mag_note_readiness(dev);
 
   return IST8310_OK;
 }

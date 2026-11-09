@@ -22,6 +22,8 @@ typedef enum {
   BMI088_ERR_GYRO_BANDWIDTH = 0x09,
   BMI088_ERR_GYRO_LPM1 = 0x0A,
   BMI088_ERR_GYRO_CTRL = 0x0B,
+  /** Still-board check failed during BMI088_CalibrateGyro (motion / outliers). */
+  BMI088_ERR_GYRO_MOTION = 0x0C,
   BMI088_ERR_NO_SENSOR = 0xFF,
 } bmi088_err_t;
 
@@ -37,7 +39,11 @@ typedef struct {
 void BMI088_StructInit(bmi088_t *dev);
 bmi088_err_t BMI088_Init(bmi088_t *dev);
 void BMI088_Read(bmi088_t *dev);
-/** Average N still samples into gyro_bias; keep board still. delay_ms between samples. */
+/**
+ * Average N still samples into gyro_bias; keep board still. delay_ms between samples.
+ * Discards warmup samples, then two-pass trimmed mean; fails with BMI088_ERR_GYRO_MOTION
+ * if too many samples look like motion.
+ */
 bmi088_err_t BMI088_CalibrateGyro(bmi088_t *dev, uint16_t samples, uint16_t delay_ms);
 
 #ifdef __cplusplus

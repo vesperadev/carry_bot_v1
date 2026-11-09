@@ -67,4 +67,4 @@ Expect: idle `key=0 led=HB err=0` and rising `ok`; hold KEY → `key=1 led=RED`;
 
 ## IST8310 (I2C3)
 
-See `docs/IST8310_CUBEMX.md`. Soft GPIO: `PG6` RSTN, `PG3` DRDY. Driver: `UserLib/IST8310`. Smoke adds `merr/mok/mx/my/mz` on the same USART6 line.
+See `docs/IST8310_CUBEMX.md`. Soft GPIO: `PG6` RSTN, `PG3` DRDY. Driver: `UserLib/IST8310`. Smoke adds `merr/mok/mrdy/mx/my/mz` on the same USART6 line (`mrdy=1` after five sane field reads).

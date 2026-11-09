@@ -19,6 +19,12 @@
 #define BMI088_ACCEL_3G_SEN 0.0008974358974f
 #define BMI088_GYRO_2000_SEN 0.0010652644360316953f
 
+#define GYRO_CAL_WARMUP_SAMPLES 20u
+/** Per-axis deviation from mean above this (rad/s) counts as outlier. */
+#define GYRO_CAL_MOTION_RAD_S 0.025f
+/** Minimum % of samples that must agree with trimmed mean. */
+#define GYRO_CAL_MIN_INLIER_PCT 85u
+
 static float s_accel_sen = BMI088_ACCEL_3G_SEN;
 static float s_gyro_sen = BMI088_GYRO_2000_SEN;
 
@@ -271,11 +277,41 @@ void BMI088_Read(bmi088_t *dev)
 }
 
 
+static void gyro_sample_rad(uint8_t buf[6], float out[3])
+{
+  out[0] = ((int16_t)((buf[1] << 8) | buf[0])) * s_gyro_sen;
+  out[1] = ((int16_t)((buf[3] << 8) | buf[2])) * s_gyro_sen;
+  out[2] = ((int16_t)((buf[5] << 8) | buf[4])) * s_gyro_sen;
+}
+
+static bool gyro_sample_is_inlier(const float g[3], const float mean[3])
+{
+  float d0 = g[0] - mean[0];
+  float d1 = g[1] - mean[1];
+  float d2 = g[2] - mean[2];
+  if (d0 < 0.0f) {
+    d0 = -d0;
+  }
+  if (d1 < 0.0f) {
+    d1 = -d1;
+  }
+  if (d2 < 0.0f) {
+    d2 = -d2;
+  }
+  return (d0 <= GYRO_CAL_MOTION_RAD_S) && (d1 <= GYRO_CAL_MOTION_RAD_S) &&
+         (d2 <= GYRO_CAL_MOTION_RAD_S);
+}
+
 bmi088_err_t BMI088_CalibrateGyro(bmi088_t *dev, uint16_t samples, uint16_t delay_ms)
 {
   float sum[3] = {0.0f, 0.0f, 0.0f};
+  float mean[3];
+  float inlier_sum[3] = {0.0f, 0.0f, 0.0f};
   uint16_t i;
+  uint16_t inliers = 0u;
   uint8_t buf[6];
+  float g[3];
+  uint16_t min_inliers;
 
   if (dev == NULL || !dev->initialized) {
     return BMI088_ERR_NO_SENSOR;
@@ -287,21 +323,50 @@ bmi088_err_t BMI088_CalibrateGyro(bmi088_t *dev, uint16_t samples, uint16_t dela
     delay_ms = 1u;
   }
 
-  /* Temporarily clear bias so averages are raw. */
   dev->gyro_bias[0] = dev->gyro_bias[1] = dev->gyro_bias[2] = 0.0f;
   dev->gyro_calibrated = false;
 
-  for (i = 0u; i < samples; ++i) {
+  for (i = 0u; i < GYRO_CAL_WARMUP_SAMPLES; ++i) {
     gyro_read_muli_reg(BMI088_GYRO_X_L, buf, 6);
-    sum[0] += ((int16_t)((buf[1] << 8) | buf[0])) * s_gyro_sen;
-    sum[1] += ((int16_t)((buf[3] << 8) | buf[2])) * s_gyro_sen;
-    sum[2] += ((int16_t)((buf[5] << 8) | buf[4])) * s_gyro_sen;
     osDelay(delay_ms);
   }
 
-  dev->gyro_bias[0] = sum[0] / (float)samples;
-  dev->gyro_bias[1] = sum[1] / (float)samples;
-  dev->gyro_bias[2] = sum[2] / (float)samples;
+  for (i = 0u; i < samples; ++i) {
+    gyro_read_muli_reg(BMI088_GYRO_X_L, buf, 6);
+    gyro_sample_rad(buf, g);
+    sum[0] += g[0];
+    sum[1] += g[1];
+    sum[2] += g[2];
+    osDelay(delay_ms);
+  }
+
+  mean[0] = sum[0] / (float)samples;
+  mean[1] = sum[1] / (float)samples;
+  mean[2] = sum[2] / (float)samples;
+
+  for (i = 0u; i < samples; ++i) {
+    gyro_read_muli_reg(BMI088_GYRO_X_L, buf, 6);
+    gyro_sample_rad(buf, g);
+    if (gyro_sample_is_inlier(g, mean)) {
+      inlier_sum[0] += g[0];
+      inlier_sum[1] += g[1];
+      inlier_sum[2] += g[2];
+      inliers++;
+    }
+    osDelay(delay_ms);
+  }
+
+  min_inliers = (uint16_t)(((uint32_t)samples * (uint32_t)GYRO_CAL_MIN_INLIER_PCT) / 100u);
+  if (min_inliers < 10u) {
+    min_inliers = 10u;
+  }
+  if (inliers < min_inliers) {
+    return BMI088_ERR_GYRO_MOTION;
+  }
+
+  dev->gyro_bias[0] = inlier_sum[0] / (float)inliers;
+  dev->gyro_bias[1] = inlier_sum[1] / (float)inliers;
+  dev->gyro_bias[2] = inlier_sum[2] / (float)inliers;
   dev->gyro_calibrated = true;
   return BMI088_OK;
 }

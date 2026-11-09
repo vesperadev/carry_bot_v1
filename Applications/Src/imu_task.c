@@ -39,9 +39,24 @@ static const char *led_hint(uint8_t key, uint8_t mode)
   }
 }
 
+static void gyrocal_fail_msg(const char *prefix, bmi088_err_t err)
+{
+  const char *tail;
+  if (err == BMI088_ERR_GYRO_MOTION) {
+    tail = "MOTION — keep still and retry\r\n";
+  } else {
+    tail = "FAIL\r\n";
+  }
+  char line[64];
+  int n = snprintf(line, sizeof(line), "%s %s", prefix, tail);
+  if (n > 0 && n < (int)sizeof(line)) {
+    (void)BT_Send((const uint8_t *)line, (uint16_t)n);
+  }
+}
+
 static void smoke_send_line(void)
 {
-  char line[256];
+  char line[280];
   int n;
   int ax = (int)(g_bmi088.accel[0] * 1000.0f);
   int ay = (int)(g_bmi088.accel[1] * 1000.0f);
@@ -55,11 +70,12 @@ static void smoke_send_line(void)
       line, sizeof(line),
       "SMOKE key=%u mode=%u led=%s err=%u ok=%lu "
       "ax=%d ay=%d az=%d gx=%d gy=%d gz=%d t=%d "
-      "merr=%u mok=%lu mx=%d my=%d mz=%d\r\n",
+      "merr=%u mok=%lu mrdy=%u mx=%d my=%d mz=%d\r\n",
       (unsigned)g_board_key, (unsigned)g_board_led_mode,
       led_hint(g_board_key, g_board_led_mode),
       (unsigned)g_bmi088_last_err, (unsigned long)g_bmi088_ok_count, ax, ay, az, gx,
       gy, gz, tc, (unsigned)g_ist8310_last_err, (unsigned long)g_ist8310_ok_count,
+      (unsigned)(g_ist8310.mag_ready ? 1u : 0u),
       (int)g_ist8310.raw_mx, (int)g_ist8310.raw_my, (int)g_ist8310.raw_mz);
 
   if (n > 0 && n < (int)sizeof(line)) {
@@ -118,12 +134,13 @@ void StartImuTask(void *argument)
   /* Boot gyro bias: keep board still ~1 s (200 x 5 ms). */
   {
     static const char cal_start[] = "GYROCAL boot start — keep still\r\n";
-    static const char cal_fail[] = "GYROCAL boot FAIL\r\n";
     char cal_done[96];
     int n;
+    bmi088_err_t cal_err;
     (void)BT_Send((const uint8_t *)cal_start, (uint16_t)(sizeof(cal_start) - 1u));
-    if (BMI088_CalibrateGyro(&g_bmi088, 200u, 5u) != BMI088_OK) {
-      (void)BT_Send((const uint8_t *)cal_fail, (uint16_t)(sizeof(cal_fail) - 1u));
+    cal_err = BMI088_CalibrateGyro(&g_bmi088, 200u, 5u);
+    if (cal_err != BMI088_OK) {
+      gyrocal_fail_msg("GYROCAL boot", cal_err);
     } else {
       n = snprintf(cal_done, sizeof(cal_done),
                    "GYROCAL boot OK bx=%d by=%d bz=%d (mrad/s)\r\n",
@@ -140,13 +157,14 @@ void StartImuTask(void *argument)
   for (;;) {
     if (g_bmi088_cal_req != 0u) {
       static const char cal_start[] = "GYROCAL cmd start — keep still\r\n";
-      static const char cal_fail[] = "GYROCAL cmd FAIL\r\n";
       char cal_done[96];
       int n;
+      bmi088_err_t cal_err;
       g_bmi088_cal_req = 0u;
       (void)BT_Send((const uint8_t *)cal_start, (uint16_t)(sizeof(cal_start) - 1u));
-      if (BMI088_CalibrateGyro(&g_bmi088, 200u, 5u) != BMI088_OK) {
-        (void)BT_Send((const uint8_t *)cal_fail, (uint16_t)(sizeof(cal_fail) - 1u));
+      cal_err = BMI088_CalibrateGyro(&g_bmi088, 200u, 5u);
+      if (cal_err != BMI088_OK) {
+        gyrocal_fail_msg("GYROCAL cmd", cal_err);
       } else {
         n = snprintf(cal_done, sizeof(cal_done),
                      "GYROCAL cmd OK bx=%d by=%d bz=%d (mrad/s)\r\n",
@@ -174,7 +192,7 @@ void StartImuTask(void *argument)
       g_ist8310_last_err = (uint8_t)merr;
     }
 
-    WheelAhrs_Update(&g_bmi088, &g_ist8310, g_ist8310.initialized != false);
+    WheelAhrs_Update(&g_bmi088, &g_ist8310, true);
     WheelAhrs_Get(&g_wheel_ahrs);
 
     sample++;
