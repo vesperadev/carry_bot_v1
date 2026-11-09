@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug OpenOCD (无线 CMSIS-DAP)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/carry_bot_v1.elf",
+            // 显式指定工具路径, 避免从桌面启动 VS Code 时 PATH 缺失; 升级 OpenOCD 后需同步修改
+            "serverpath": "C:/Users/37963/AppData/Local/Microsoft/WinGet/Packages/xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "gdbPath": "C:/Users/37963/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+            "device": "STM32F407IG",
+            "interface": "swd",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "preLaunchTask": "Build"
+        },
+        {
+            "name": "Attach OpenOCD (无线 CMSIS-DAP)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/carry_bot_v1.elf",
+            // 显式指定工具路径, 避免从桌面启动 VS Code 时 PATH 缺失; 升级 OpenOCD 后需同步修改
+            "serverpath": "C:/Users/37963/AppData/Local/Microsoft/WinGet/Packages/xpack-dev-tools.openocd-xpack_Microsoft.Winget.Source_8wekyb3d8bbwe/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "gdbPath": "C:/Users/37963/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe",
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+            "device": "STM32F407IG",
+            "interface": "swd",
+            "showDevDebugOutput": "none"
+        }
+    ]
+}

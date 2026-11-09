@@ -1,6 +1,6 @@
-#include "bt_protocol.h"
+#include "link_protocol.h"
 
-/* 树莓派通信协议骨架，协议定稿后只改本文件：
+/* RPI 对端（树莓派）协议骨架，协议定稿后只改本文件：
  *   请求 | 0xA5 | cmd(1) | payload_len(1) | payload | crc8 |
  *   回复 | 0x5A | cmd(1) | 0x01           | result  | crc8 |
  * 目前仅实现 PING(0x00)，其余命令返回 result=0xFF，
@@ -27,10 +27,10 @@ uint8_t crc8(const uint8_t *data, uint16_t len)
   return crc;
 }
 
-class RpiProtocol final : public BtProtocol
+class RpiProtocol final : public LinkProtocol
 {
 public:
-  bool parse(const BtFrame &frame) override
+  bool parse(const LinkFrame &frame) override
   {
     pending_ = false;
     if (frame.len < FRAME_MIN_LEN || frame.data[0] != FRAME_HEAD) return false;
@@ -71,7 +71,7 @@ RpiProtocol protocol;
 
 }
 
-BtProtocol &BT_GetProtocol()
+LinkProtocol &Link_GetProtocol()
 {
   return protocol;
 }
