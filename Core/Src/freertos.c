@@ -25,8 +25,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bt_public.h"
-#include "bt_config.h"
+#include "link_public.h"
+#include "link_config.h"
+#include "zdt_public.h"
+#include "zdt_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,12 +48,19 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-/* Definitions for btTask */
-osThreadId_t btTaskHandle;
-const osThreadAttr_t btTask_attributes = {
-  .name = "btTask",
-  .stack_size = BT_TASK_STACK_SIZE,
-  .priority = (osPriority_t) BT_TASK_PRIORITY,
+/* Definitions for linkTask */
+osThreadId_t linkTaskHandle;
+const osThreadAttr_t linkTask_attributes = {
+  .name = "linkTask",
+  .stack_size = LINK_TASK_STACK_SIZE,
+  .priority = (osPriority_t) LINK_TASK_PRIORITY,
+};
+/* Definitions for zdtTask */
+osThreadId_t zdtTaskHandle;
+const osThreadAttr_t zdtTask_attributes = {
+  .name = "zdtTask",
+  .stack_size = ZDT_TASK_STACK_SIZE,
+  .priority = (osPriority_t) ZDT_TASK_PRIORITY,
 };
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
@@ -102,7 +111,8 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  btTaskHandle = osThreadNew(StartBTTask, NULL, &btTask_attributes);
+  linkTaskHandle = osThreadNew(StartLinkTask, NULL, &linkTask_attributes);
+  zdtTaskHandle = osThreadNew(StartZdtTask, NULL, &zdtTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
