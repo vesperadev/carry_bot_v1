@@ -102,12 +102,20 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     /* USART1 clock enable */
     __HAL_RCC_USART1_CLK_ENABLE();
 
+        __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**USART1 GPIO Configuration
-    PB7     ------> USART1_RX
-    PB6     ------> USART1_TX
+    PA9     ------> USART1_TX  (RoboMaster C-board shell UART2 TXD)
+    PB7     ------> USART1_RX  (RoboMaster C-board shell UART2 RXD)
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_6;
+    GPIO_InitStruct.Pin = GPIO_PIN_9;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_7;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -235,11 +243,12 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
     /* Peripheral clock disable */
     __HAL_RCC_USART1_CLK_DISABLE();
 
-    /**USART1 GPIO Configuration
+        /**USART1 GPIO Configuration
+    PA9     ------> USART1_TX
     PB7     ------> USART1_RX
-    PB6     ------> USART1_TX
     */
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7|GPIO_PIN_6);
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9);
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
 
     /* USART1 DMA DeInit */
     HAL_DMA_DeInit(uartHandle->hdmarx);

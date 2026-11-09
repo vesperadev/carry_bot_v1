@@ -25,8 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "bt_public.h"
-#include "bt_config.h"
+#include "usart.h"
+#include "gpio.h"
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,19 +47,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-/* Definitions for btTask */
-osThreadId_t btTaskHandle;
-const osThreadAttr_t btTask_attributes = {
-  .name = "btTask",
-  .stack_size = BT_TASK_STACK_SIZE,
-  .priority = (osPriority_t) BT_TASK_PRIORITY,
-};
-/* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -102,8 +95,8 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  btTaskHandle = osThreadNew(StartBTTask, NULL, &btTask_attributes);
-  /* USER CODE END RTOS_THREADS */
+  /* hello-tx diagnostic: do not start Link/ZDT/Servo */
+/* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
@@ -121,10 +114,43 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
-  for(;;)
+  /* Diagnostic:
+   *   ´®¿Ú2 (4-pin) TX @115200 -> "hello\r\n"   (PA9)
+   *   ´®¿Ú1 (3-pin) TX @9600   -> "hello1\r\n"  (PG14)
+   *   onboard LED_B PH10: IO high = on (same as BoardLed)
+   */
+  static const char msg2[] = "hello\r\n";
+  static const char msg1[] = "hello1\r\n";
+  static const char fail[] = "fail\r\n";
+  GPIO_InitTypeDef led_cfg = {0};
+
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  HAL_GPIO_WritePin(GPIOH, GPIO_PIN_10, GPIO_PIN_RESET);
+  led_cfg.Pin = GPIO_PIN_10;
+  led_cfg.Mode = GPIO_MODE_OUTPUT_PP;
+  led_cfg.Pull = GPIO_NOPULL;
+  led_cfg.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOH, &led_cfg);
+
+  for (;;)
   {
-    osDelay(1);
+    HAL_StatusTypeDef st2 = HAL_UART_Transmit(&huart1, (uint8_t *)msg2, (uint16_t)(sizeof(msg2) - 1U), 100);
+    HAL_StatusTypeDef st1 = HAL_UART_Transmit(&huart6, (uint8_t *)msg1, (uint16_t)(sizeof(msg1) - 1U), 100);
+
+    if ((st2 != HAL_OK) || (st1 != HAL_OK))
+    {
+      (void)HAL_UART_Transmit(&huart6, (uint8_t *)fail, (uint16_t)(sizeof(fail) - 1U), 100);
+      /* fast blink on TX failure */
+      HAL_GPIO_WritePin(GPIOH, GPIO_PIN_10, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(GPIOH, GPIO_PIN_10, GPIO_PIN_RESET);
+      osDelay(100);
+    }
+    else
+    {
+      HAL_GPIO_TogglePin(GPIOH, GPIO_PIN_10);
+      osDelay(500);
+    }
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -133,4 +159,3 @@ void StartDefaultTask(void *argument)
 /* USER CODE BEGIN Application */
 
 /* USER CODE END Application */
-
