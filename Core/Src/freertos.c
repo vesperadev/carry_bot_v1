@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include "bt_public.h"
 #include "bt_config.h"
+#include "imu_task.h"
+#include "board_task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +48,18 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+osThreadId_t boardTaskHandle;
+const osThreadAttr_t boardTask_attributes = {
+  .name = "boardTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+osThreadId_t imuTaskHandle;
+const osThreadAttr_t imuTask_attributes = {
+  .name = "imuTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
 /* Definitions for btTask */
 osThreadId_t btTaskHandle;
 const osThreadAttr_t btTask_attributes = {
@@ -102,6 +116,8 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
+  boardTaskHandle = osThreadNew(StartBoardTask, NULL, &boardTask_attributes);
+  imuTaskHandle = osThreadNew(StartImuTask, NULL, &imuTask_attributes);
   btTaskHandle = osThreadNew(StartBTTask, NULL, &btTask_attributes);
   /* USER CODE END RTOS_THREADS */
 

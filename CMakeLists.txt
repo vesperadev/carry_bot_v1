@@ -37,7 +37,10 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
-# Add user libraries
+# Add user libraries (QGimbal-style: BSP / UserLib / Applications + app/BT)
+add_subdirectory(BSP/Board)
+add_subdirectory(UserLib/BMI088)
+add_subdirectory(Applications)
 add_subdirectory(app/BT)
 
 # Link directories setup
@@ -67,6 +70,9 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
     bt
+    bsp_board
+    userlib_bmi088
+    applications
 
     # Add user defined libraries
 )
