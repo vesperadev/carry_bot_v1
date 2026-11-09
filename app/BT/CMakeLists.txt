@@ -1,5 +1,4 @@
-# 链路对端：DEBUG(蓝牙/AT 调试) 或 RPI(树莓派)
-# 切换方式：cmake -DBT_LINK_MODE=RPI ... 重新配置
+# Link peer: DEBUG (BT/AT) or RPI
 set(BT_LINK_MODE "DEBUG" CACHE STRING "BT link peer: DEBUG or RPI")
 set_property(CACHE BT_LINK_MODE PROPERTY STRINGS DEBUG RPI)
 
@@ -23,4 +22,6 @@ endif()
 
 target_include_directories(bt INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}/generated
+    ${CMAKE_SOURCE_DIR}/Applications/Inc
 )
