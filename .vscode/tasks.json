@@ -1,0 +1,40 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "C:/Users/37963/AppData/Local/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build/Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Flash (OpenOCD 无线)",
+            "type": "shell",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "openocd.cfg",
+                "-c",
+                "program build/Debug/carry_bot_v1.elf verify reset exit"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build",
+            "problemMatcher": []
+        }
+    ]
+}
