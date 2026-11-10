@@ -9,8 +9,29 @@
 #define ZDT_TX_BUF_SIZE         64U
 #define ZDT_QUEUE_LEN           8U
 #define ZDT_SLOT_MAX            8U
-#define ZDT_PULSE_PER_REV       3200U
+/* Emm V5 closed-loop: 0xFD pulse field and 0x36 position use 65536 counts/rev (manual). */
+#define ZDT_POS_UNITS_PER_REV   65536L
+/* Legacy open-loop microstep count; not used for 0xFD encode on this board. */
+#define ZDT_PULSE_PER_REV       ZDT_POS_UNITS_PER_REV
 #define ZDT_ACK_TIMEOUT_MS      500U
+
+/* MA: close target with 0x36 + iterative 0xFD; ~3 deg residual (65536/rev). */
+#ifndef ZDT_MA_MAX_PASSES
+#define ZDT_MA_MAX_PASSES       4U
+#endif
+#ifndef ZDT_MA_TOL_DEG
+#define ZDT_MA_TOL_DEG          3
+#endif
+#define ZDT_MA_TOL_UNITS        ((int32_t)((ZDT_POS_UNITS_PER_REV * (int64_t)ZDT_MA_TOL_DEG) / 360LL))
+#ifndef ZDT_MA_MOTION_WAIT_MS
+#define ZDT_MA_MOTION_WAIT_MS   15000U
+#endif
+#ifndef ZDT_MA_POLL_MS
+#define ZDT_MA_POLL_MS          25U
+#endif
+#ifndef ZDT_MA_ARRIVE_STABLE_CNT
+#define ZDT_MA_ARRIVE_STABLE_CNT  2U
+#endif
 #define ZDT_DEFAULT_VEL_RPM     300U
 #define ZDT_DEFAULT_ACC         100U
 

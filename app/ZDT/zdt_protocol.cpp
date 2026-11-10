@@ -2,7 +2,14 @@
 
 extern "C" uint32_t ZdtProto_DegToPulses(uint32_t abs_deg)
 {
-  return static_cast<uint32_t>((static_cast<uint64_t>(abs_deg) * ZDT_PULSE_PER_REV) / 360U);
+  return static_cast<uint32_t>((static_cast<uint64_t>(abs_deg) * ZDT_POS_UNITS_PER_REV) / 360U);
+}
+
+extern "C" int32_t ZdtProto_UnitsToEmmDeg(int32_t units)
+{
+  const int64_t deg64 =
+      (static_cast<int64_t>(units) * 360LL) / static_cast<int64_t>(ZDT_POS_UNITS_PER_REV);
+  return static_cast<int32_t>(deg64);
 }
 
 extern "C" uint8_t ZdtProto_EncodeEnable(uint8_t *out, uint8_t capacity, uint8_t addr, uint8_t on, uint8_t snF)
@@ -79,6 +86,58 @@ extern "C" uint8_t ZdtProto_EncodeRead(uint8_t *out, uint8_t capacity, uint8_t a
   out[1] = cmd;
   out[2] = ZDT_TAIL;
   return 3U;
+}
+
+extern "C" int ZdtProto_ParseRealtimePos(const uint8_t *data, uint16_t len, ZdtPosRead *out)
+{
+  if (data == nullptr || out == nullptr || len < 8U) return 0;
+  for (uint16_t i = 0U; i + 7U < len; ++i)
+  {
+    if (data[i + 1U] != ZDT_CMD_READ_POS) continue;
+    if (data[i + 7U] != ZDT_TAIL) continue;
+    const uint8_t sign = data[i + 2U];
+    const uint32_t raw = (static_cast<uint32_t>(data[i + 3U]) << 24) |
+                         (static_cast<uint32_t>(data[i + 4U]) << 16) |
+                         (static_cast<uint32_t>(data[i + 5U]) << 8) |
+                         static_cast<uint32_t>(data[i + 6U]);
+    int32_t units = static_cast<int32_t>(raw);
+    if (sign == 1U) units = -units;
+    out->addr = data[i];
+    out->units = units;
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int ZdtProto_ParseStatusFlags(const uint8_t *data, uint16_t len, uint8_t *addr,
+                                           uint8_t *flags)
+{
+  if (data == nullptr || flags == nullptr || len < 4U) return 0;
+  for (uint16_t i = 0U; i + 3U < len; ++i)
+  {
+    if (data[i + 1U] != ZDT_CMD_READ_FLG) continue;
+    if (data[i + 3U] != ZDT_TAIL) continue;
+    if (addr != nullptr) *addr = data[i];
+    *flags = data[i + 2U];
+    return 1;
+  }
+  return 0;
+}
+
+extern "C" int ZdtProto_ParseRealtimeVel(const uint8_t *data, uint16_t len, int32_t *rpm)
+{
+  if (data == nullptr || rpm == nullptr || len < 6U) return 0;
+  for (uint16_t i = 0U; i + 5U < len; ++i)
+  {
+    if (data[i + 1U] != ZDT_CMD_READ_VEL) continue;
+    if (data[i + 5U] != ZDT_TAIL) continue;
+    const uint8_t sign = data[i + 2U];
+    const int32_t v = (static_cast<int32_t>(data[i + 3U]) << 8) |
+                      static_cast<int32_t>(data[i + 4U]);
+    *rpm = (sign == 1U) ? -v : v;
+    return 1;
+  }
+  return 0;
 }
 
 extern "C" int ZdtProto_FindAck(const uint8_t *data, uint16_t len, ZdtAck *ack)

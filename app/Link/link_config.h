@@ -13,7 +13,7 @@
 #define LINK_QUEUE_LEN          4U                /* 接收队列深度 */
 
 /* 以下两项仅供 Core/Src/freertos.c 使用（需先包含 cmsis_os.h） */
-#define LINK_TASK_STACK_SIZE    (256U * 4U)
+#define LINK_TASK_STACK_SIZE    (512U * 4U)
 #define LINK_TASK_PRIORITY      osPriorityNormal
 
 #endif /* __LINK_CONFIG_H */

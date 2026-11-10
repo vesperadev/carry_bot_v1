@@ -4,6 +4,7 @@
 #include "link_protocol.h"
 #include "zdt_public.h"
 #include "zdt_config.h"
+#include "zdt_limits.h"
 #include "servo_public.h"
 #include "servo_config.h"
 
@@ -24,7 +25,10 @@ struct BridgeSlot
   uint8_t  dir;
   uint8_t  acc;
   uint16_t vel;
-  int32_t  last_deg;
+  int32_t  last_deg;     /* last MG relative command (deg) */
+  int32_t  drv_deg;      /* cached Emm 0x36 angle (logical); not encoder if stale */
+  uint8_t  drv_valid;    /* 1 if drv_deg from successful USART1 read */
+  int32_t  fallback_deg; /* soft estimate when 0x36 read fails; not truth */
 };
 
 char to_upper(char c)
@@ -156,7 +160,43 @@ private:
       slots_[i].acc = static_cast<uint8_t>(ZDT_DEFAULT_ACC);
       slots_[i].vel = static_cast<uint16_t>(ZDT_DEFAULT_VEL_RPM);
       slots_[i].last_deg = 0;
+      slots_[i].drv_deg = 0;
+      slots_[i].drv_valid = 0U;
+      slots_[i].fallback_deg = 0;
     }
+  }
+
+  void slot_refresh_driver_pos(BridgeSlot *s)
+  {
+    if (s == nullptr) return;
+    int32_t deg = 0;
+    const HAL_StatusTypeDef st =
+        Zdt_ReadRealtimePosDeg(s->addr, &deg, ZDT_ACK_TIMEOUT_MS);
+    if (st == HAL_OK)
+    {
+      s->drv_deg = deg;
+      s->drv_valid = 1U;
+    }
+  }
+
+  int32_t slot_current_for_ma(BridgeSlot *s, const char **src_out)
+  {
+    if (s == nullptr)
+    {
+      if (src_out != nullptr) *src_out = "none";
+      return 0;
+    }
+    int32_t deg = 0;
+    if (Zdt_ReadRealtimePosDeg(s->addr, &deg, ZDT_ACK_TIMEOUT_MS) == HAL_OK)
+    {
+      s->drv_deg = deg;
+      s->drv_valid = 1U;
+      if (src_out != nullptr) *src_out = "drv";
+      return deg;
+    }
+    s->drv_valid = 0U;
+    if (src_out != nullptr) *src_out = "fallback";
+    return s->fallback_deg;
   }
 
   BridgeSlot *slot_find(uint8_t addr)
@@ -176,6 +216,9 @@ private:
         slots_[i].acc = static_cast<uint8_t>(ZDT_DEFAULT_ACC);
         slots_[i].vel = static_cast<uint16_t>(ZDT_DEFAULT_VEL_RPM);
         slots_[i].last_deg = 0;
+        slots_[i].drv_deg = 0;
+        slots_[i].drv_valid = 0U;
+        slots_[i].fallback_deg = 0;
         return &slots_[i];
       }
     }
@@ -491,7 +534,9 @@ private:
 
     if (*p == '?' || to_upper(*p) == 'H')
     {
-      append_line("OK A-tier: M? ME0/1 MG[+|-]deg MX MS[n] ML MJ S? ... test test1m ver");
+      append_line("OK A-tier: M? ME MG MA MX MZ MR MS ML MJ ... test test1m ver");
+      append_line("MR=USART1 smoke: query 36/1F/3A dump hex on shell (lift M1R turn M2R)");
+      append_line("MA=0x36 goto+0x3A wait; tol=ZDT_MA_TOL_DEG; soft lim OFF (zdt_limits.h)");
       append_line("addr 1=lift 2=turn 3-6=wheels *=bcast default=2");
       return;
     }
@@ -560,16 +605,164 @@ private:
           append_line("ERR MG needs deg");
           return;
         }
+        const int32_t deg_req = deg;
+        deg = Zdt_ClampRelativeDeg(addr, deg);
         const HAL_StatusTypeDef st = Zdt_GoDeg(addr, deg);
         BridgeSlot *s = slot_find(addr);
         if (s != nullptr)
         {
           s->last_deg = deg;
-          if (deg > 0) s->dir = 1U;
-          else if (deg < 0) s->dir = 0U;
+          if (st == HAL_OK)
+          {
+            if (deg > 0) s->dir = 1U;
+            else if (deg < 0) s->dir = 0U;
+            slot_refresh_driver_pos(s);
+            if (s->drv_valid == 0U) s->fallback_deg += deg;
+          }
         }
-        reply_fmt("%s MG addr=%u deg=%ld", hal_err(st), static_cast<unsigned>(addr),
-                  static_cast<long>(deg));
+        if (deg != deg_req)
+        {
+          reply_fmt("%s MG addr=%u deg=%ld lim=%ld", hal_err(st),
+                    static_cast<unsigned>(addr), static_cast<long>(deg),
+                    static_cast<long>(deg_req));
+        }
+        else
+        {
+          reply_fmt("%s MG addr=%u deg=%ld", hal_err(st), static_cast<unsigned>(addr),
+                    static_cast<long>(deg));
+        }
+        break;
+      }
+      case 'A':
+      {
+        if (addr == ZDT_ADDR_BROADCAST)
+        {
+          append_line("ERR MA no broadcast");
+          return;
+        }
+        int32_t target = 0;
+        if (!parse_i32(p, &target))
+        {
+          append_line("ERR MA needs abs deg e.g. M1A0 M2A+90");
+          return;
+        }
+        BridgeSlot *s = slot_find(addr);
+        if (s == nullptr)
+        {
+          append_line("ERR no slot");
+          return;
+        }
+        ZdtAbsGotoResult ma{};
+        const HAL_StatusTypeDef st = Zdt_AbsGotoLogical(addr, target, &ma);
+        if (s != nullptr && st == HAL_OK)
+        {
+          s->drv_deg = ma.final_logical;
+          s->drv_valid = 1U;
+          s->last_deg = ma.final_logical - ma.start_logical;
+          if (s->last_deg > 0) s->dir = 1U;
+          else if (s->last_deg < 0) s->dir = 0U;
+        }
+        const char *mw =
+            (ma.motion_wait == HAL_OK) ? "OK" : "TIMEOUT";
+        const char *lim =
+            (ma.target_clamped != 0U) ? "clamp" : "none";
+        reply_fmt("%s MA addr=%u tgt=%ld lim=%s start=%ld passes=%u mwt=%s "
+                  "err_u=%ld pos=%ld(drv) tol<=%ddeg",
+                  hal_err(st), static_cast<unsigned>(addr),
+                  static_cast<long>(ma.target_logical), lim,
+                  static_cast<long>(ma.start_logical),
+                  static_cast<unsigned>(ma.passes), mw,
+                  static_cast<long>(ma.err_units),
+                  static_cast<long>(ma.final_logical),
+                  ZDT_MA_TOL_DEG);
+        break;
+      }
+      case 'R':
+      {
+        if (addr == ZDT_ADDR_BROADCAST)
+        {
+          append_line("ERR MR no broadcast");
+          return;
+        }
+        static const uint8_t kQueryCmds[] = {
+          ZDT_CMD_READ_POS, ZDT_CMD_READ_VER, ZDT_CMD_READ_FLG
+        };
+        char rxhex[72];
+        reply_fmt("OK MR start a=%u", static_cast<unsigned>(addr));
+        flush_reply();
+        for (uint8_t qi = 0U; qi < sizeof(kQueryCmds); ++qi)
+        {
+          const uint8_t qcmd = kQueryCmds[qi];
+          Zdt_ClearLastRx();
+          const HAL_StatusTypeDef st = Zdt_QueryRead(addr, qcmd, ZDT_ACK_TIMEOUT_MS);
+          (void)Zdt_FormatLastRx(rxhex, sizeof(rxhex));
+          const char *rxst = "FAIL";
+          if (st == HAL_OK) rxst = "OK";
+          else if (st == HAL_TIMEOUT) rxst = "TIMEOUT";
+          else if (st == HAL_BUSY) rxst = "BUSY";
+          if (qcmd == ZDT_CMD_READ_POS)
+          {
+            ZdtPosRead pos{};
+            if (st == HAL_OK && Zdt_ParseLastRealtimePos(&pos) != 0)
+            {
+              const int32_t emm_deg = ZdtProto_UnitsToEmmDeg(pos.units);
+              reply_fmt("MR a=%u cmd=%02X %s rx=%s units=%ld deg=%ld parse=OK",
+                        static_cast<unsigned>(addr),
+                        static_cast<unsigned>(qcmd), rxst, rxhex,
+                        static_cast<long>(pos.units),
+                        static_cast<long>(emm_deg));
+            }
+            else
+            {
+              reply_fmt("MR a=%u cmd=%02X %s rx=%s parse=FAIL",
+                        static_cast<unsigned>(addr),
+                        static_cast<unsigned>(qcmd), rxst, rxhex);
+            }
+          }
+          else
+          {
+            reply_fmt("MR a=%u cmd=%02X %s rx=%s parse=NA",
+                      static_cast<unsigned>(addr),
+                      static_cast<unsigned>(qcmd), rxst, rxhex);
+          }
+          flush_reply();
+          vTaskDelay(pdMS_TO_TICKS(BRIDGE_TEST_GAP_MS));
+        }
+        append_line("OK MR done");
+        break;
+      }
+      case 'Z':
+      {
+        if (addr == ZDT_ADDR_BROADCAST)
+        {
+          append_line("ERR MZ no broadcast");
+          return;
+        }
+        const HAL_StatusTypeDef st = Zdt_Zero(addr);
+        BridgeSlot *s = slot_find(addr);
+        if (s != nullptr && st == HAL_OK)
+        {
+          s->fallback_deg = 0;
+          slot_refresh_driver_pos(s);
+        }
+        int32_t pos = 0;
+        const char *src = "none";
+        if (s != nullptr)
+        {
+          if (s->drv_valid != 0U)
+          {
+            pos = s->drv_deg;
+            src = "drv";
+          }
+          else
+          {
+            pos = s->fallback_deg;
+            src = "fallback";
+          }
+        }
+        reply_fmt("%s MZ addr=%u drv_deg=%ld(%s)",
+                  hal_err(st), static_cast<unsigned>(addr),
+                  static_cast<long>(pos), src);
         break;
       }
       case 'X':
@@ -607,12 +800,18 @@ private:
         for (uint8_t i = 0U; i < BRIDGE_SLOT_MAX; ++i)
         {
           if (!slots_[i].used) continue;
-          reply_fmt("SLOT %u addr=%u dir=%u vel=%u acc=%u last_deg=%ld",
+          slot_refresh_driver_pos(&slots_[i]);
+          const char *src = (slots_[i].drv_valid != 0U) ? "drv" : "fallback";
+          const int32_t pos =
+              (slots_[i].drv_valid != 0U) ? slots_[i].drv_deg : slots_[i].fallback_deg;
+          reply_fmt("SLOT %u addr=%u dir=%u vel=%u acc=%u pos=%ld(%s) fb=%ld lastMG=%ld",
                     static_cast<unsigned>(i),
                     static_cast<unsigned>(slots_[i].addr),
                     static_cast<unsigned>(slots_[i].dir),
                     static_cast<unsigned>(slots_[i].vel),
                     static_cast<unsigned>(slots_[i].acc),
+                    static_cast<long>(pos), src,
+                    static_cast<long>(slots_[i].fallback_deg),
                     static_cast<long>(slots_[i].last_deg));
         }
         reply_fmt("default=%u", static_cast<unsigned>(default_addr_));
@@ -631,16 +830,21 @@ private:
           append_line("ERR no slot");
           return;
         }
-        reply_fmt("OK MJ addr=%u dir=%u vel=%u acc=%u last_deg=%ld",
+        slot_refresh_driver_pos(s);
+        const char *src = (s->drv_valid != 0U) ? "drv" : "fallback";
+        const int32_t pos = (s->drv_valid != 0U) ? s->drv_deg : s->fallback_deg;
+        reply_fmt("OK MJ addr=%u dir=%u vel=%u acc=%u pos=%ld(%s) fb=%ld lastMG=%ld",
                   static_cast<unsigned>(s->addr),
                   static_cast<unsigned>(s->dir),
                   static_cast<unsigned>(s->vel),
                   static_cast<unsigned>(s->acc),
+                  static_cast<long>(pos), src,
+                  static_cast<long>(s->fallback_deg),
                   static_cast<long>(s->last_deg));
         break;
       }
       case '?':
-        append_line("OK A-tier: M? ME0/1 MG[+|-]deg MX MS[n] ML MJ test");
+        append_line("OK A-tier: M? ME0/1 MG MA MZ MX MS[n] ML MJ test");
         break;
       default:
         append_line("ERR unknown M cmd, send M?");

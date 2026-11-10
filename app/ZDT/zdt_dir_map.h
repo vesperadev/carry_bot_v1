@@ -59,4 +59,13 @@ static inline int32_t Zdt_ApplyDirDeg(uint8_t addr, int32_t deg)
   return deg;
 }
 
+/* Emm 0xFD wire delta: dir=0 increases 0x36 counts on this bus (lift MA verified). */
+static inline uint8_t Zdt_PosWireDirBit(uint8_t addr, int32_t wire_delta)
+{
+  if (wire_delta == 0) return 0U;
+  uint8_t up = (wire_delta > 0) ? 1U : 0U;
+  up = Zdt_ApplyDirBit(addr, up);
+  return (uint8_t)(up ^ 1U);
+}
+
 #endif /* ZDT_DIR_MAP_H */
